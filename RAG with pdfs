@@ -1,0 +1,99 @@
+print("\nimporting the necessary modules...")
+from pypdf import PdfReader
+import os
+from sentence_transformers import SentenceTransformer
+import chromadb
+from groq import Groq
+
+
+pdf_folder = "se_rag_pdf/"
+
+print("taking the data out of pdf and storing it in a list...")
+
+# taking the data out of pdf and storing it in all_texts list
+all_texts = []
+for filename in os.listdir(pdf_folder):
+    if filename.endswith(".pdf"):
+        reader = PdfReader(os.path.join(pdf_folder, filename))
+        text = ""
+        for page in reader.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text = text + extracted + "\n"
+        all_texts.append(text)
+        # all text men pdf has been stored
+
+
+
+def chunk_text(text, chunk_size=50):
+    words = text.split()
+    return [
+        " ".join(words[i:i + chunk_size])
+        for i in range(0, len(words), chunk_size)
+    ]
+
+
+print("initializing embedding model for vector embedding and chroma db for search query...")
+
+# hugging face embedding model
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+
+client = chromadb.Client()
+collection = client.create_collection("pdfs_rag")
+
+
+
+chunk_id = 0
+for text in all_texts:
+    chunks = chunk_text(text, 50)
+    for chunk in chunks:
+        embedding = model.encode(chunk)
+        collection.add(
+            ids=[str(chunk_id)],
+            documents=[chunk],
+            embeddings=[embedding]
+        )
+        chunk_id += 1
+
+
+while(True):
+    # question to ask the AI
+    query = input("\nAsk me anything about (Software)SE lecture pdfs!! (or press x to exit) :- ")
+
+    if query.lower() == "x":
+        break
+
+    else:
+        query_embedding = model.encode(query)
+
+
+    
+
+    #retrieval
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=3
+    )
+
+    retrieved_docs = results["documents"][0]
+    context = "\n".join(retrieved_docs)
+
+    print("Context Retrieved ----------------------------------------------------------------------------------------------------")
+    print(context)
+    print("----------------------------------------------------------------------------------------------------------------------")
+
+    # groq side
+    llm = Groq(api_key="put grok key here")
+    prompt = "Answer this question using only context and question and keep it short please , context:\n" + context + "and question:\n" + query
+
+    grok_answer = llm.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+
+    answer = grok_answer.choices[0].message.content
+    print("AI's Answer ----------------------------------------------------------------------------------------------------------")
+    print(answer)
+    print("----------------------------------------------------------------------------------------------------------------------")
