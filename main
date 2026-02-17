@@ -1,0 +1,9 @@
+from fastapi import FastAPI, Form
+from test_ucp_checker import main_func
+
+app = FastAPI()
+
+@app.post("/ask")
+def ask(question: str = Form(...)):
+
+    return main_func(question)
